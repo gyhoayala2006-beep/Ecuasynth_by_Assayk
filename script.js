@@ -1,0 +1,329 @@
+let audioCtx = null;
+const notasActivas = {};
+let mapaTecladoFrecuencias = {};
+
+const ESTRUCTURA_OCTAVA = [
+    { nota: 'C', tipo: 'white' }, { nota: 'C#', tipo: 'black' },
+    { nota: 'D', tipo: 'white' }, { nota: 'D#', tipo: 'black' },
+    { nota: 'E', tipo: 'white' }, { nota: 'F', tipo: 'white' },
+    { nota: 'F#', tipo: 'black' }, { nota: 'G', tipo: 'white' },
+    { nota: 'G#', tipo: 'black' }, { nota: 'A', tipo: 'white' },
+    { nota: 'A#', tipo: 'black' }, { nota: 'B', tipo: 'white' }
+];
+
+const matrizFiltros = { A: 'lowpass', B: 'lowpass', C: 'lowpass' };
+const matrizFiltrosActivos = { A: true, B: true, C: true };
+
+// Estado de los valores de distorsión X/Y por cada oscilador
+const valoresDistorsion = {
+    A: { drive: 0, gain: 0 },
+    B: { drive: 0, gain: 0 },
+    C: { drive: 0, gain: 0 }
+};
+
+function asegurarAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+/**
+ * Genera una curva matemática de saturación sigmoidea (Ondas Tangente Hiperbólica)
+ */
+function calcularCurvaDistorsion(cantidad) {
+    const k = typeof cantidad === 'number' ? cantidad : 50;
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n_samples; ++i) {
+        const x = (i * 2) / n_samples - 1;
+        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+}
+
+function crearBufferRuido(tipo) {
+    const tamañoBuffer = 2 * audioCtx.sampleRate;
+    const buffer = audioCtx.createBuffer(1, tamañoBuffer, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    if (tipo === 'white') {
+        for (let i = 0; i < tamañoBuffer; i++) data[i] = Math.random() * 2 - 1;
+    } else if (tipo === 'pink') {
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        for (let i = 0; i < tamañoBuffer; i++) {
+            let white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179; b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520; b3 = 0.86650 * b3 + white * 0.3104856;
+            b4 = 0.55000 * b4 + white * 0.5329522; b5 = -0.7616 * b5 - white * 0.0168980;
+            const pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362; b6 = white * 0.115926;
+            data[i] = pink * 0.11;
+        }
+    }
+    return buffer;
+}
+
+function calcularFrecuencia(nombreNota, numeroOctava) {
+    const nombres = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    return 440 * Math.pow(2, (((numeroOctava * 12) + nombres.indexOf(nombreNota)) - 57) / 12);
+}
+
+function generarTeclado() {
+    const cantidadOctavas = parseInt(document.getElementById('octaveSlider').value);
+    document.getElementById('octaveDisplay').textContent = `${cantidadOctavas} Oct`;
+    const contenedor = document.getElementById('pianoContainer');
+    contenedor.innerHTML = '';
+    mapaTecladoFrecuencias = {};
+    
+    let octavaInicial = 3;
+    for (let o = 0; o < cantidadOctavas; o++) {
+        const octavaActual = octavaInicial + o;
+        ESTRUCTURA_OCTAVA.forEach(item => {
+            const idNota = `${item.nota}${octavaActual}`;
+            mapaTecladoFrecuencias[idNota] = calcularFrecuencia(item.nota, octavaActual);
+            const li = document.createElement('li');
+            li.className = `key ${item.tipo}`;
+            li.setAttribute('data-note', idNota);
+            const span = document.createElement('span');
+            span.textContent = idNota;
+            li.appendChild(span);
+            li.addEventListener('mousedown', () => playNota(idNota));
+            li.addEventListener('mouseup', () => stopNota(idNota));
+            li.addEventListener('mouseleave', () => stopNota(idNota));
+            contenedor.appendChild(li);
+        });
+    }
+}
+
+function playNota(idNota) {
+    asegurarAudioContext();
+    if (notasActivas[idNota]) return;
+
+    const frecuencia = mapaTecladoFrecuencias[idNota];
+    if (!frecuencia) return;
+
+    const actA = document.getElementById('btnToggleA').checked;
+    const actB = document.getElementById('btnToggleB').checked;
+    const actC = document.getElementById('btnToggleC').checked;
+    const actNoise = document.getElementById('btnToggleNoise').checked;
+
+    if (!actA && !actB && !actC && !actNoise) return;
+
+    // Conectamos un Nodo Estéreo Maestre intermedio antes del destino
+    const estructura = { oscs: [], noiseNode: null, gainNode: audioCtx.createGain(), pannerNode: audioCtx.createStereoPanner() };
+    const attack = parseFloat(document.getElementById('adsrAttack').value);
+    const decay = parseFloat(document.getElementById('adsrDecay').value);
+    const sustain = parseFloat(document.getElementById('adsrSustain').value);
+
+    const añadirOscilador = (oscId, tipo, detuneVal, filterType) => {
+        const cantidadArmonicos = parseInt(document.getElementById(`harmSlider${oscId}`).value);
+        
+        // Generación de onda base + sobretonos de armónicos integrados
+        for (let h = 1; h <= cantidadArmonicos; h++) {
+            const osc = audioCtx.createOscillator();
+            osc.type = tipo;
+            // Multiplicamos la frecuencia por el índice armónico
+            osc.frequency.setValueAtTime(frecuencia * h, audioCtx.currentTime);
+            osc.detune.setValueAtTime(detuneVal, audioCtx.currentTime);
+
+            // Nodos de distorsión
+            const waveShaper = audioCtx.createWaveShaper();
+            const distGain = audioCtx.createGain();
+            
+            const drive = valoresDistorsion[oscId].drive * 200; // Escala de distorsión
+            waveShaper.curve = calcularCurvaDistorsion(drive);
+            waveShaper.oversample = '4x';
+            distGain.gain.setValueAtTime(valoresDistorsion[oscId].gain, audioCtx.currentTime);
+
+            // Enrutamiento: Osc -> Distorsionador -> Volumen de Distorsión
+            osc.connect(waveShaper);
+            waveShaper.connect(distGain);
+
+            let nodoSalidaOsc = distGain;
+
+            if (matrizFiltrosActivos[oscId]) {
+                const filter = audioCtx.createBiquadFilter();
+                filter.type = filterType;
+                filter.frequency.setValueAtTime(filterType === 'lowpass' ? 1200 : filterType === 'highpass' ? 400 : 800, audioCtx.currentTime);
+                nodoSalidaOsc.connect(filter);
+                filter.connect(estructura.gainNode);
+            } else {
+                nodoSalidaOsc.connect(estructura.gainNode);
+            }
+
+            osc.start();
+            estructura.oscs.push(osc);
+        }
+    };
+
+    if (actA) añadirOscilador('A', document.getElementById('waveTypeA').value, parseFloat(document.getElementById('detuneSliderA').value), matrizFiltros.A);
+    if (actB) añadirOscilador('B', document.getElementById('waveTypeB').value, parseFloat(document.getElementById('detuneSliderB').value), matrizFiltros.B);
+    if (actC) añadirOscilador('C', document.getElementById('waveTypeC').value, parseFloat(document.getElementById('detuneSliderC').value), matrizFiltros.C);
+
+    if (actNoise) {
+        const noiseSource = audioCtx.createBufferSource();
+        const noiseGain = audioCtx.createGain();
+        noiseSource.buffer = crearBufferRuido(document.getElementById('noiseType').value);
+        noiseSource.loop = true;
+        noiseGain.gain.setValueAtTime(parseFloat(document.getElementById('noiseVolume').value) * 0.15, audioCtx.currentTime);
+        noiseSource.connect(noiseGain);
+        noiseGain.connect(estructura.gainNode);
+        noiseSource.start();
+        estructura.noiseNode = noiseSource;
+    }
+
+    // --- CONFIGURACIÓN DE LA IMAGEN ESTÉREO ---
+    const valStereo = parseFloat(document.getElementById('stereoSlider').value); 
+    // Convertimos un rango 0-1 a paneo espacial (-1 Izquierda total / 1 Derecha total / 0 Mono centro)
+    // El slider en 0.5 representa equilibrio balanceado (Mono natural/Centro). Hacia los lados expande fase
+    estructura.pannerNode.pan.setValueAtTime((valStereo - 0.5) * 2, audioCtx.currentTime);
+
+    const t = audioCtx.currentTime;
+    estructura.gainNode.gain.setValueAtTime(0, t);
+    estructura.gainNode.gain.linearRampToValueAtTime(0.25, t + attack);
+    estructura.gainNode.gain.linearRampToValueAtTime(0.25 * sustain, t + attack + decay);
+    
+    // Ruteo Final: Señal unificada -> Panner Estéreo -> Salida Física altavoces
+    estructura.gainNode.connect(estructura.pannerNode);
+    estructura.pannerNode.connect(audioCtx.destination);
+    
+    notasActivas[idNota] = estructura;
+    const teclaDOM = document.querySelector(`[data-note="${idNota}"]`);
+    if (teclaDOM) teclaDOM.classList.add('active');
+}
+
+function stopNota(idNota) {
+    const estructura = notasActivas[idNota];
+    if (estructura) {
+        const release = parseFloat(document.getElementById('adsrRelease').value);
+        const t = audioCtx.currentTime;
+        estructura.gainNode.gain.cancelScheduledValues(t);
+        estructura.gainNode.gain.setValueAtTime(estructura.gainNode.gain.value, t);
+        estructura.gainNode.gain.exponentialRampToValueAtTime(0.0001, t + release);
+        
+        setTimeout(() => {
+            estructura.oscs.forEach(osc => { try { osc.stop(); osc.disconnect(); } catch(e){} });
+            if (estructura.noiseNode) { try { estructura.noiseNode.stop(); estructura.noiseNode.disconnect(); } catch(e){} }
+            estructura.gainNode.disconnect();
+            estructura.pannerNode.disconnect();
+        }, (release * 1000) + 50);
+        delete notasActivas[idNota];
+    }
+    const teclaDOM = document.querySelector(`[data-note="${idNota}"]`);
+    if (teclaDOM) teclaDOM.classList.remove('active');
+}
+
+function dibujarGraficoADSR() {
+    const canvas = document.getElementById('adsrCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const att = parseFloat(document.getElementById('adsrAttack').value);
+    const dec = parseFloat(document.getElementById('adsrDecay').value);
+    const sus = parseFloat(document.getElementById('adsrSustain').value);
+    const rel = parseFloat(document.getElementById('adsrRelease').value);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(60, 30, 112, 0.2)';
+    ctx.lineWidth = 1;
+    for(let i=0; i<canvas.width; i+=20) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); ctx.stroke(); }
+    for(let i=0; i<canvas.height; i+=20) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); ctx.stroke(); }
+    const w = canvas.width - 40, h = canvas.height - 20;
+    const x0 = 20, y0 = canvas.height - 10;
+    const x1 = x0 + (att / 2) * (w * 0.3), y1 = y0 - h;
+    const x2 = x1 + (dec / 2) * (w * 0.3), y2 = y0 - (sus * h);
+    const x3 = x2 + (w * 0.2), y3 = y2;
+    const x4 = x3 + (rel / 3) * (w * 0.2), y4 = y0;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.lineTo(x4, y4);
+    ctx.strokeStyle = '#9d4edd'; ctx.lineWidth = 3; ctx.stroke();
+}
+
+function vincularFiltros(oscId, lpId, hpId, bpId, pwrId) {
+    const cambiarFiltro = (tipo, btnId) => {
+        matrizFiltros[oscId] = tipo;
+        [lpId, hpId, bpId].forEach(id => document.getElementById(id).classList.remove('active'));
+        document.getElementById(btnId).classList.add('active');
+    };
+    document.getElementById(lpId).addEventListener('click', () => cambiarFiltro('lowpass', lpId));
+    document.getElementById(hpId).addEventListener('click', () => cambiarFiltro('highpass', hpId));
+    document.getElementById(bpId).addEventListener('click', () => cambiarFiltro('bandpass', bpId));
+    const bPwr = document.getElementById(pwrId);
+    if(bPwr) {
+        bPwr.addEventListener('click', () => {
+            matrizFiltrosActivos[oscId] = !matrizFiltrosActivos[oscId];
+            bPwr.classList.toggle('active', matrizFiltrosActivos[oscId]);
+            bPwr.textContent = matrizFiltrosActivos[oscId] ? "ON" : "BYPASS";
+        });
+    }
+}
+
+// --- NUEVA FUNCIÓN: INICIALIZAR Y GESTIONAR LOS PADS X/Y MOUSE TRACKING ---
+function inicializarPadsXY() {
+    ['A', 'B', 'C'].forEach(id => {
+        const pad = document.getElementById(`xyPad${id}`);
+        const pointer = document.getElementById(`pointer${id}`);
+
+        const procesarMovimiento = (e) => {
+            const rect = pad.getBoundingClientRect();
+            // Restringimos los límites del puntero al contenedor del Pad
+            let x = e.clientX - rect.left;
+            let y = e.clientY - rect.top;
+            if (x < 0) x = 0; if (x > rect.width) x = rect.width;
+            if (y < 0) y = 0; if (y > rect.height) y = rect.height;
+
+            pointer.style.left = `${x}px`;
+            pointer.style.top = `${y}px`;
+
+            // Mapeo de variables: X -> Drive (0 a 1) | Y -> Gain de Distorsión (Invertido, 0 abajo, 1 arriba)
+            valoresDistorsion[id].drive = x / rect.width;
+            valoresDistorsion[id].gain = 1 - (y / rect.height);
+        };
+
+        pad.addEventListener('mousedown', (e) => {
+            procesarMovimiento(e);
+            const moverMouse = (moveEvent) => procesarMovimiento(moveEvent);
+            window.addEventListener('mousemove', moverMouse);
+            window.addEventListener('mouseup', () => {
+                window.removeEventListener('mousemove', moverMouse);
+            }, { once: true });
+        });
+    });
+}
+
+function actualizarInterfaz() {
+    ['A', 'B', 'C'].forEach(id => {
+        const val = document.getElementById(`detuneSlider${id}`).value;
+        document.getElementById(`detuneDisplay${id}`).textContent = `${val > 0 ? '+' : ''}${val}c`;
+        document.getElementById(`section-${id}`).classList.toggle('active', document.getElementById(`btnToggle${id}`).checked);
+        // Mostrar valor de los armónicos
+        document.getElementById(`harmDisplay${id}`).textContent = `${document.getElementById(`harmSlider${id}`).value}x`;
+    });
+    
+    const noiseVol = Math.round(parseFloat(document.getElementById('noiseVolume').value) * 100);
+    document.getElementById('noiseVolDisplay').textContent = `${noiseVol}%`;
+    document.getElementById('section-Noise').classList.toggle('active', document.getElementById('btnToggleNoise').checked);
+
+    document.getElementById('displayAttack').textContent = `${parseFloat(document.getElementById('adsrAttack').value).toFixed(2)}s`;
+    document.getElementById('displayDecay').textContent = `${parseFloat(document.getElementById('adsrDecay').value).toFixed(2)}s`;
+    document.getElementById('displaySustain').textContent = `${Math.round(parseFloat(document.getElementById('adsrSustain').value) * 100)}%`;
+    document.getElementById('displayRelease').textContent = `${parseFloat(document.getElementById('adsrRelease').value).toFixed(2)}s`;
+
+    // Visualizador de Imagen Estéreo
+    const stVal = parseFloat(document.getElementById('stereoSlider').value);
+    document.getElementById('stereoDisplay').textContent = stVal === 0.5 ? "Mono (Centro)" : stVal < 0.5 ? "Fase Izquierda" : "Fase Derecha";
+
+    dibujarGraficoADSR();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('octaveSlider').addEventListener('input', generarTeclado);
+    document.getElementById('stereoSlider').addEventListener('input', actualizarInterfaz);
+    
+    ['adsrAttack', 'adsrDecay', 'adsrSustain', 'adsrRelease'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
+    ['detuneSliderA', 'detuneSliderB', 'detuneSliderC', 'noiseVolume', 'btnToggleA', 'btnToggleB', 'btnToggleC', 'btnToggleNoise', 'noiseType', 'harmSliderA', 'harmSliderB', 'harmSliderC'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
+
+    vincularFiltros('A', 'fltA-lp', 'fltA-hp', 'fltA-bp', 'pwrFiltroA');
+    vincularFiltros('B', 'fltB-lp', 'fltB-hp', 'fltB-bp', 'pwrFiltroB');
+    vincularFiltros('C', 'fltC-lp', 'fltC-hp', 'fltC-bp', 'pwrFiltroC');
+
+    inicializarPadsXY();
+    generarTeclado();
+    actualizarInterfaz();
+});
