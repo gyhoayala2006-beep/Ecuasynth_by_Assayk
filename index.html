@@ -211,12 +211,47 @@
                 </div>
             </div>
 
+<!-- VENTANA FLOTANTE DE INICIO DE SESIÓN (MODAL EN TONOS MORADOS) -->
+    <div id="authModal" class="auth-overlay">
+        <div class="auth-card">
+            <h3 id="authTitle">ACCESO AL SISTEMA</h3>
+            <p class="auth-subtitle">Ecuasynth By Assayk</p>
+
+            <!-- Estado del Usuario Conectado -->
+            <div id="userStatus" class="user-status d-none">
+                <p>Sesión activa: <span id="currentEmail"></span></p>
+                <button type="button" id="btnSignOut" class="btn-auth-danger">CERRAR SESIÓN</button>
+                <button type="button" id="btnContinue" class="btn-auth-primary" style="margin-top: 10px;">CONTINUAR</button>
+            </div>
+
+            <!-- Formulario de Entrada -->
+            <form id="authForm">
+                <div class="input-group">
+                    <label for="authEmail">CORREO ELECTRÓNICO</label>
+                    <input type="email" id="authEmail" placeholder="usuario@correo.com" required>
+                </div>
+                <div class="input-group">
+                    <label for="authPassword">CONTRASEÑA</label>
+                    <input type="password" id="authPassword" placeholder="••••••••" required>
+                </div>
+                
+                <button type="submit" id="btnPrimaryAuth" class="btn-auth-primary">INGRESAR</button>
+                
+                <button type="button" id="btnToggleAuthMode" class="btn-auth-link">
+                    ¿No tienes cuenta? Regístrate aquí
+                </button>
+            </form>
+        </div>
+    </div>
+
             <div class="piano-wrapper p-3 rounded">
                 <div id="pianoContainer" class="piano-keys d-flex justify-content-center"></div>
             </div>
 
         </div>
     </div>
+
+<script type="module" src="script.js"></script>
 
 </body>
 </html>

@@ -1,3 +1,5 @@
+import { registrarUsuario, iniciarSesion, cerrarSesion, vigilarEstadoUsuario } from './firebaseAuth.js';
+
 let audioCtx = null;
 const notasActivas = {};
 let mapaTecladoFrecuencias = {};
@@ -326,4 +328,85 @@ document.addEventListener('DOMContentLoaded', () => {
     inicializarPadsXY();
     generarTeclado();
     actualizarInterfaz();
+});
+
+// --- CONTROLADOR DE LA INTERFAZ DE FIREBASE ---
+function controlarInterfazAutentificacion() {
+    let modoRegistro = false;
+    
+    const authModal = document.getElementById('authModal');
+    const form = document.getElementById('authForm');
+    const emailInput = document.getElementById('authEmail');
+    const passwordInput = document.getElementById('authPassword');
+    const btnPrimary = document.getElementById('btnPrimaryAuth');
+    const btnToggle = document.getElementById('btnToggleAuthMode');
+    const authTitle = document.getElementById('authTitle');
+    const userStatus = document.getElementById('userStatus');
+    const currentEmail = document.getElementById('currentEmail');
+    const btnSignOut = document.getElementById('btnSignOut');
+    const btnContinue = document.getElementById('btnContinue');
+
+    // Cambiar entre Modos (Login / Registro)
+    btnToggle.addEventListener('click', () => {
+        modoRegistro = !modoRegistro;
+        if (modoRegistro) {
+            authTitle.textContent = "REGISTRAR CUENTA";
+            btnPrimary.textContent = "CREAR CUENTA";
+            btnToggle.textContent = "¿Ya tienes cuenta? Ingresa aquí";
+        } else {
+            authTitle.textContent = "ACCESO AL SISTEMA";
+            btnPrimary.textContent = "INGRESAR";
+            btnToggle.textContent = "¿No tienes cuenta? Regístrate aquí";
+        }
+    });
+
+    // Envío del Formulario a Firebase
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = emailInput.value;
+        const password = passwordInput.value;
+
+        if (modoRegistro) {
+            registrarUsuario(email, password)
+                .then(() => alert("¡Cuenta creada con éxito!"))
+                .catch(error => alert("Error al registrar: " + error.message));
+        } else {
+            iniciarSesion(email, password)
+                .then(() => {
+                    authModal.classList.add('d-none'); // Quita el blur y oculta la ventana
+                })
+                .catch(error => alert("Error de credenciales: " + error.message));
+        }
+        form.reset();
+    });
+
+    btnSignOut.addEventListener('click', () => {
+        cerrarSesion().catch(error => alert(error.message));
+    });
+
+    btnContinue.addEventListener('click', () => {
+        authModal.classList.add('d-none');
+    });
+
+    // Listener de estado de Firebase en tiempo real
+    vigilarEstadoUsuario((user) => {
+        if (user) {
+            form.classList.add('d-none');
+            userStatus.classList.remove('d-none');
+            currentEmail.textContent = user.email;
+            authModal.classList.add('d-none'); // Esconde la pantalla si ya está logueado
+        } else {
+            form.classList.remove('d-none');
+            userStatus.classList.add('d-none');
+            currentEmail.textContent = "";
+            authModal.classList.remove('d-none'); // Bloquea si no está logueado
+        }
+    });
+}
+
+// Llama a la función al cargar la página (Colócala dentro de tu inicializador DOM)
+document.addEventListener('DOMContentLoaded', () => {
+    // ... tus setups de audio previos ...
+    
+    controlarInterfazAutentificacion();
 });

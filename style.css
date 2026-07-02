@@ -122,3 +122,119 @@ body {
 .piano-keys .black.active { background: linear-gradient(to bottom, #14042b, #9d4edd); border-color: #c5a3ff; box-shadow: 0 0 12px rgba(157, 78, 221, 0.7); }
 .piano-keys .key span { position: absolute; bottom: 10px; width: 100%; left: 0; color: #4e3575; font-size: 0.65rem; font-weight: 600; text-align: center; }
 .piano-keys .black span { color: #7c4dff; bottom: 8px; }
+
+/* --- INTERFAZ DE AUTENTICACIÓN GLASSMORPHISM --- */
+
+.auth-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(10, 6, 18, 0.7); /* Capa oscura traslúcida */
+    backdrop-filter: blur(10px);            /* Difumina todo el sintetizador de fondo */
+    -webkit-backdrop-filter: blur(10px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;                          /* Asegura que flote sobre perillas y canvas */
+    transition: opacity 0.3s ease;
+}
+
+.auth-card {
+    background: rgba(25, 16, 44, 0.9);       /* Tono morado oscuro profundo */
+    border: 2px solid #8a2be2;               /* Borde morado neón */
+    box-shadow: 0 0 25px rgba(138, 43, 226, 0.6);
+    padding: 35px;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 360px;
+    text-align: center;
+    font-family: 'Courier New', Courier, monospace;
+    color: #ffffff;
+}
+
+.auth-card h3 {
+    color: #00ffff;                          /* Texto en Cyan Neón */
+    margin-bottom: 5px;
+    letter-spacing: 2px;
+}
+
+.auth-subtitle {
+    color: #b19ffb;
+    font-size: 0.8rem;
+    margin-bottom: 25px;
+}
+
+.input-group {
+    text-align: left;
+    margin-bottom: 18px;
+}
+
+.input-group label {
+    display: block;
+    font-size: 0.75rem;
+    color: #b19ffb;
+    margin-bottom: 6px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 10px;
+    background: rgba(10, 6, 18, 0.9);
+    border: 1px solid #5a189a;
+    border-radius: 6px;
+    color: #ffffff;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.input-group input:focus {
+    border-color: #00ffff;
+    box-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
+}
+
+.btn-auth-primary {
+    width: 100%;
+    padding: 12px;
+    background: #8a2be2;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    letter-spacing: 1px;
+}
+
+.btn-auth-primary:hover {
+    background: #a044ff;
+    box-shadow: 0 0 10px rgba(138, 43, 226, 0.8);
+}
+
+.btn-auth-danger {
+    width: 100%;
+    padding: 10px;
+    background: #d90429;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+}
+
+.btn-auth-link {
+    background: none;
+    border: none;
+    color: #b19ffb;
+    font-size: 0.8rem;
+    margin-top: 15px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.btn-auth-link:hover {
+    color: #00ffff;
+}
+
+.d-none {
+    display: none !important;
+}
