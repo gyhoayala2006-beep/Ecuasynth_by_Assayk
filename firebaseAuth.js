@@ -10,15 +10,15 @@ import {
     onAuthStateChanged 
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-// Configuración limpia de credenciales de Firebase
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-    apiKey: "AIzaSyA8KVwA0gw6zkqdICryGAvME1jGhwus0LA",
-    authDomain: "ecuasynthbyassayk.firebaseapp.com",
-    projectId: "ecuasynthbyassayk",
-    storageBucket: "ecuasynthbyassayk.firebasestorage.app",
-    messagingSenderId: "47203970090",
-    appId: "1:47203970090:web:30220f673302cf57572753",
-    measurementId: "G-GXDSPBYY0V"
+  apiKey: "AIzaSyA8KVwA0gw6zkqdICrYgAvME1jGhwus0LA",
+  authDomain: "ecuasynthbyassayk.firebaseapp.com",
+  projectId: "ecuasynthbyassayk",
+  storageBucket: "ecuasynthbyassayk.firebasestorage.app",
+  messagingSenderId: "47203970090",
+  appId: "1:47203970090:web:30220f673302cf57572753",
+  measurementId: "G-GXDSPBYY0V"
 };
 
 // Inicialización de servicios con el SDK corregido
