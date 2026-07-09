@@ -7,7 +7,6 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <script src="script.js" defer></script>
 </head>
 <body>
 
@@ -28,9 +27,9 @@
                 </div>
                 <div class="col-md-3 mt-2 mt-md-0">
                     <div class="octave-selector-box p-2 rounded text-center">
-                        <label for="stereoSlider" class="micro-label text-purple-light d-block mb-1">IMAGEN ESTÉREO</label>
+                        <label for="stereoSlider" class="micro-label text-purple-light d-block mb-1">ESPACIALIZADOR ESTÉREO</label>
                         <input type="range" class="form-range knob-slider" id="stereoSlider" min="0" max="1" value="0.5" step="0.01">
-                        <span id="stereoDisplay" class="small-val">Mono/Estéreo</span>
+                        <span id="stereoDisplay" class="small-val">Señal Normal</span>
                     </div>
                 </div>
             </header>
@@ -211,38 +210,35 @@
                 </div>
             </div>
 
-<!-- VENTANA FLOTANTE DE INICIO DE SESIÓN (MODAL EN TONOS MORADOS) -->
-    <div id="authModal" class="auth-overlay">
-        <div class="auth-card">
-            <h3 id="authTitle">ACCESO AL SISTEMA</h3>
-            <p class="auth-subtitle">Ecuasynth By Assayk</p>
+            <div id="authModal" class="auth-overlay">
+                <div class="auth-card">
+                    <h3 id="authTitle">ACCESO AL SISTEMA</h3>
+                    <p class="auth-subtitle">Ecuasynth By Assayk</p>
 
-            <!-- Estado del Usuario Conectado -->
-            <div id="userStatus" class="user-status d-none">
-                <p>Sesión activa: <span id="currentEmail"></span></p>
-                <button type="button" id="btnSignOut" class="btn-auth-danger">CERRAR SESIÓN</button>
-                <button type="button" id="btnContinue" class="btn-auth-primary" style="margin-top: 10px;">CONTINUAR</button>
+                    <div id="userStatus" class="user-status d-none">
+                        <p>Sesión activa: <span id="currentEmail"></span></p>
+                        <button type="button" id="btnSignOut" class="btn-auth-danger">CERRAR SESIÓN</button>
+                        <button type="button" id="btnContinue" class="btn-auth-primary" style="margin-top: 10px;">CONTINUAR</button>
+                    </div>
+
+                    <form id="authForm">
+                        <div class="input-group">
+                            <label for="authEmail">CORREO ELECTRÓNICO</label>
+                            <input type="email" id="authEmail" placeholder="usuario@correo.com" required>
+                        </div>
+                        <div class="input-group">
+                            <label for="authPassword">CONTRASEÑA</label>
+                            <input type="password" id="authPassword" placeholder="••••••••" required>
+                        </div>
+                        
+                        <button type="submit" id="btnPrimaryAuth" class="btn-auth-primary">INGRESAR</button>
+                        
+                        <button type="button" id="btnToggleAuthMode" class="btn-auth-link">
+                            ¿No tienes cuenta? Regístrate aquí
+                        </button>
+                    </form>
+                </div>
             </div>
-
-            <!-- Formulario de Entrada -->
-            <form id="authForm">
-                <div class="input-group">
-                    <label for="authEmail">CORREO ELECTRÓNICO</label>
-                    <input type="email" id="authEmail" placeholder="usuario@correo.com" required>
-                </div>
-                <div class="input-group">
-                    <label for="authPassword">CONTRASEÑA</label>
-                    <input type="password" id="authPassword" placeholder="••••••••" required>
-                </div>
-                
-                <button type="submit" id="btnPrimaryAuth" class="btn-auth-primary">INGRESAR</button>
-                
-                <button type="button" id="btnToggleAuthMode" class="btn-auth-link">
-                    ¿No tienes cuenta? Regístrate aquí
-                </button>
-            </form>
-        </div>
-    </div>
 
             <div class="piano-wrapper p-3 rounded">
                 <div id="pianoContainer" class="piano-keys d-flex justify-content-center"></div>
@@ -251,7 +247,6 @@
         </div>
     </div>
 
-<script type="module" src="script.js"></script>
-
+    <script type="module" src="script.js"></script>
 </body>
 </html>

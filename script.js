@@ -4,6 +4,30 @@ let audioCtx = null;
 const notasActivas = {};
 let mapaTecladoFrecuencias = {};
 
+// Mapeo físico estándar de piano (Disposición de teclas)
+const ASIGNACION_TECLAS_FISICAS = [
+    { key: 'a', notaRelativa: 0 },   // C
+    { key: 'w', notaRelativa: 1 },   // C#
+    { key: 's', notaRelativa: 2 },   // D
+    { key: 'e', notaRelativa: 3 },   // D#
+    { key: 'd', notaRelativa: 4 },   // E
+    { key: 'f', notaRelativa: 5 },   // F
+    { key: 't', notaRelativa: 6 },   // F#
+    { key: 'g', notaRelativa: 7 },   // G
+    { key: 'y', notaRelativa: 8 },   // G#
+    { key: 'h', notaRelativa: 9 },   // A
+    { key: 'u', notaRelativa: 10 },  // A#
+    { key: 'j', notaRelativa: 11 },  // B
+    { key: 'k', notaRelativa: 12 },  // C (Siguiente Octava)
+    { key: 'o', notaRelativa: 13 },  // C#
+    { key: 'l', notaRelativa: 14 },  // D
+    { key: 'p', notaRelativa: 15 },  // D#
+    { key: 'ñ', notaRelativa: 16 }   // E
+];
+
+let mapaTeclasFisicasANotas = {};
+const teclasFisicasPresionadas = new Set();
+
 const ESTRUCTURA_OCTAVA = [
     { nota: 'C', tipo: 'white' }, { nota: 'C#', tipo: 'black' },
     { nota: 'D', tipo: 'white' }, { nota: 'D#', tipo: 'black' },
@@ -16,7 +40,6 @@ const ESTRUCTURA_OCTAVA = [
 const matrizFiltros = { A: 'lowpass', B: 'lowpass', C: 'lowpass' };
 const matrizFiltrosActivos = { A: true, B: true, C: true };
 
-// Estado de los valores de distorsión X/Y por cada oscilador
 const valoresDistorsion = {
     A: { drive: 0, gain: 0 },
     B: { drive: 0, gain: 0 },
@@ -29,9 +52,6 @@ function asegurarAudioContext() {
     }
 }
 
-/**
- * Genera una curva matemática de saturación sigmoidea (Ondas Tangente Hiperbólica)
- */
 function calcularCurvaDistorsion(cantidad) {
     const k = typeof cantidad === 'number' ? cantidad : 50;
     const n_samples = 44100;
@@ -75,29 +95,64 @@ function generarTeclado() {
     const contenedor = document.getElementById('pianoContainer');
     contenedor.innerHTML = '';
     mapaTecladoFrecuencias = {};
+    mapaTeclasFisicasANotas = {};
     
     let octavaInicial = 3;
+    let listaNotasOrdenadas = [];
+
     for (let o = 0; o < cantidadOctavas; o++) {
         const octavaActual = octavaInicial + o;
         ESTRUCTURA_OCTAVA.forEach(item => {
             const idNota = `${item.nota}${octavaActual}`;
             mapaTecladoFrecuencias[idNota] = calcularFrecuencia(item.nota, octavaActual);
+            listaNotasOrdenadas.push(idNota);
+
             const li = document.createElement('li');
             li.className = `key ${item.tipo}`;
             li.setAttribute('data-note', idNota);
+            
             const span = document.createElement('span');
-            span.textContent = idNota;
+            span.innerHTML = `${idNota}`; // Limpio, sin guías de texto
             li.appendChild(span);
+            
             li.addEventListener('mousedown', () => playNota(idNota));
             li.addEventListener('mouseup', () => stopNota(idNota));
             li.addEventListener('mouseleave', () => stopNota(idNota));
             contenedor.appendChild(li);
         });
     }
+
+    // Vincular mecánicamente las teclas físicas con las notas de la interfaz actual
+    ASIGNACION_TECLAS_FISICAS.forEach(mapeo => {
+        if (mapeo.notaRelativa < listaNotasOrdenadas.length) {
+            mapaTeclasFisicasANotas[mapeo.key] = listaNotasOrdenadas[mapeo.notaRelativa];
+        }
+    });
+}
+
+function inicializarEscuchadoresTecladoFisico() {
+    window.addEventListener('keydown', (e) => {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+        
+        const letra = e.key.toLowerCase();
+        if (mapaTeclasFisicasANotas[letra] && !teclasFisicasPresionadas.has(letra)) {
+            teclasFisicasPresionadas.add(letra);
+            playNota(mapaTeclasFisicasANotas[letra]);
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const letra = e.key.toLowerCase();
+        if (teclasFisicasPresionadas.has(letra)) {
+            teclasFisicasPresionadas.delete(letra);
+            stopNota(mapaTeclasFisicasANotas[letra]);
+        }
+    });
 }
 
 function playNota(idNota) {
     asegurarAudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
     if (notasActivas[idNota]) return;
 
     const frecuencia = mapaTecladoFrecuencias[idNota];
@@ -110,50 +165,74 @@ function playNota(idNota) {
 
     if (!actA && !actB && !actC && !actNoise) return;
 
-    // Conectamos un Nodo Estéreo Maestre intermedio antes del destino
-    const estructura = { oscs: [], noiseNode: null, gainNode: audioCtx.createGain(), pannerNode: audioCtx.createStereoPanner() };
+    const estructura = { oscs: [], noiseNode: null, gainNode: audioCtx.createGain() };
     const attack = parseFloat(document.getElementById('adsrAttack').value);
     const decay = parseFloat(document.getElementById('adsrDecay').value);
     const sustain = parseFloat(document.getElementById('adsrSustain').value);
 
+    const valStereo = parseFloat(document.getElementById('stereoSlider').value); 
+    let factorEstereo = 1; 
+    let microDetuneEstereo = 0;
+
+    if (valStereo < 0.5) {
+        factorEstereo = valStereo * 2; 
+    } else if (valStereo > 0.5) {
+        microDetuneEstereo = (valStereo - 0.5) * 30; 
+    }
+
     const añadirOscilador = (oscId, tipo, detuneVal, filterType) => {
         const cantidadArmonicos = parseInt(document.getElementById(`harmSlider${oscId}`).value);
         
-        // Generación de onda base + sobretonos de armónicos integrados
         for (let h = 1; h <= cantidadArmonicos; h++) {
-            const osc = audioCtx.createOscillator();
-            osc.type = tipo;
-            // Multiplicamos la frecuencia por el índice armónico
-            osc.frequency.setValueAtTime(frecuencia * h, audioCtx.currentTime);
-            osc.detune.setValueAtTime(detuneVal, audioCtx.currentTime);
+            const canales = (valStereo > 0.5) ? ['L', 'R'] : ['C'];
 
-            // Nodos de distorsión
-            const waveShaper = audioCtx.createWaveShaper();
-            const distGain = audioCtx.createGain();
-            
-            const drive = valoresDistorsion[oscId].drive * 200; // Escala de distorsión
-            waveShaper.curve = calcularCurvaDistorsion(drive);
-            waveShaper.oversample = '4x';
-            distGain.gain.setValueAtTime(valoresDistorsion[oscId].gain, audioCtx.currentTime);
+            canales.forEach(canal => {
+                const osc = audioCtx.createOscillator();
+                osc.type = tipo;
+                osc.frequency.setValueAtTime(frecuencia * h, audioCtx.currentTime);
+                
+                let detuneFinal = detuneVal;
+                if (canal === 'L') detuneFinal -= microDetuneEstereo;
+                if (canal === 'R') detuneFinal += microDetuneEstereo;
+                
+                osc.detune.setValueAtTime(detuneFinal, audioCtx.currentTime);
 
-            // Enrutamiento: Osc -> Distorsionador -> Volumen de Distorsión
-            osc.connect(waveShaper);
-            waveShaper.connect(distGain);
+                const waveShaper = audioCtx.createWaveShaper();
+                const distGain = audioCtx.createGain();
+                
+                const drive = valoresDistorsion[oscId].drive * 200;
+                waveShaper.curve = calcularCurvaDistorsion(drive);
+                waveShaper.oversample = '4x';
+                distGain.gain.setValueAtTime(valoresDistorsion[oscId].gain, audioCtx.currentTime);
 
-            let nodoSalidaOsc = distGain;
+                osc.connect(waveShaper);
+                waveShaper.connect(distGain);
 
-            if (matrizFiltrosActivos[oscId]) {
-                const filter = audioCtx.createBiquadFilter();
-                filter.type = filterType;
-                filter.frequency.setValueAtTime(filterType === 'lowpass' ? 1200 : filterType === 'highpass' ? 400 : 800, audioCtx.currentTime);
-                nodoSalidaOsc.connect(filter);
-                filter.connect(estructura.gainNode);
-            } else {
-                nodoSalidaOsc.connect(estructura.gainNode);
-            }
+                let nodoSalidaOsc = distGain;
 
-            osc.start();
-            estructura.oscs.push(osc);
+                if (matrizFiltrosActivos[oscId]) {
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = filterType;
+                    filter.frequency.setValueAtTime(filterType === 'lowpass' ? 1200 : filterType === 'highpass' ? 400 : 800, audioCtx.currentTime);
+                    nodoSalidaOsc.connect(filter);
+                    nodoSalidaOsc = filter;
+                }
+
+                const pannerNode = audioCtx.createStereoPanner();
+                if (canal === 'L') {
+                    pannerNode.pan.setValueAtTime(-1 * factorEstereo, audioCtx.currentTime);
+                } else if (canal === 'R') {
+                    pannerNode.pan.setValueAtTime(1 * factorEstereo, audioCtx.currentTime);
+                } else {
+                    pannerNode.pan.setValueAtTime(0, audioCtx.currentTime);
+                }
+
+                nodoSalidaOsc.connect(pannerNode);
+                pannerNode.connect(estructura.gainNode);
+
+                osc.start();
+                estructura.oscs.push(osc);
+            });
         }
     };
 
@@ -168,25 +247,22 @@ function playNota(idNota) {
         noiseSource.loop = true;
         noiseGain.gain.setValueAtTime(parseFloat(document.getElementById('noiseVolume').value) * 0.15, audioCtx.currentTime);
         noiseSource.connect(noiseGain);
-        noiseGain.connect(estructura.gainNode);
+        
+        const noisePanner = audioCtx.createStereoPanner();
+        noisePanner.pan.setValueAtTime((valStereo > 0.5) ? 0.15 : 0, audioCtx.currentTime);
+        noiseGain.connect(noisePanner);
+        noisePanner.connect(estructura.gainNode);
+        
         noiseSource.start();
         estructura.noiseNode = noiseSource;
     }
-
-    // --- CONFIGURACIÓN DE LA IMAGEN ESTÉREO ---
-    const valStereo = parseFloat(document.getElementById('stereoSlider').value); 
-    // Convertimos un rango 0-1 a paneo espacial (-1 Izquierda total / 1 Derecha total / 0 Mono centro)
-    // El slider en 0.5 representa equilibrio balanceado (Mono natural/Centro). Hacia los lados expande fase
-    estructura.pannerNode.pan.setValueAtTime((valStereo - 0.5) * 2, audioCtx.currentTime);
 
     const t = audioCtx.currentTime;
     estructura.gainNode.gain.setValueAtTime(0, t);
     estructura.gainNode.gain.linearRampToValueAtTime(0.25, t + attack);
     estructura.gainNode.gain.linearRampToValueAtTime(0.25 * sustain, t + attack + decay);
     
-    // Ruteo Final: Señal unificada -> Panner Estéreo -> Salida Física altavoces
-    estructura.gainNode.connect(estructura.pannerNode);
-    estructura.pannerNode.connect(audioCtx.destination);
+    estructura.gainNode.connect(audioCtx.destination);
     
     notasActivas[idNota] = estructura;
     const teclaDOM = document.querySelector(`[data-note="${idNota}"]`);
@@ -206,7 +282,6 @@ function stopNota(idNota) {
             estructura.oscs.forEach(osc => { try { osc.stop(); osc.disconnect(); } catch(e){} });
             if (estructura.noiseNode) { try { estructura.noiseNode.stop(); estructura.noiseNode.disconnect(); } catch(e){} }
             estructura.gainNode.disconnect();
-            estructura.pannerNode.disconnect();
         }, (release * 1000) + 50);
         delete notasActivas[idNota];
     }
@@ -256,7 +331,6 @@ function vincularFiltros(oscId, lpId, hpId, bpId, pwrId) {
     }
 }
 
-// --- NUEVA FUNCIÓN: INICIALIZAR Y GESTIONAR LOS PADS X/Y MOUSE TRACKING ---
 function inicializarPadsXY() {
     ['A', 'B', 'C'].forEach(id => {
         const pad = document.getElementById(`xyPad${id}`);
@@ -264,7 +338,6 @@ function inicializarPadsXY() {
 
         const procesarMovimiento = (e) => {
             const rect = pad.getBoundingClientRect();
-            // Restringimos los límites del puntero al contenedor del Pad
             let x = e.clientX - rect.left;
             let y = e.clientY - rect.top;
             if (x < 0) x = 0; if (x > rect.width) x = rect.width;
@@ -273,7 +346,6 @@ function inicializarPadsXY() {
             pointer.style.left = `${x}px`;
             pointer.style.top = `${y}px`;
 
-            // Mapeo de variables: X -> Drive (0 a 1) | Y -> Gain de Distorsión (Invertido, 0 abajo, 1 arriba)
             valoresDistorsion[id].drive = x / rect.width;
             valoresDistorsion[id].gain = 1 - (y / rect.height);
         };
@@ -294,7 +366,6 @@ function actualizarInterfaz() {
         const val = document.getElementById(`detuneSlider${id}`).value;
         document.getElementById(`detuneDisplay${id}`).textContent = `${val > 0 ? '+' : ''}${val}c`;
         document.getElementById(`section-${id}`).classList.toggle('active', document.getElementById(`btnToggle${id}`).checked);
-        // Mostrar valor de los armónicos
         document.getElementById(`harmDisplay${id}`).textContent = `${document.getElementById(`harmSlider${id}`).value}x`;
     });
     
@@ -307,30 +378,20 @@ function actualizarInterfaz() {
     document.getElementById('displaySustain').textContent = `${Math.round(parseFloat(document.getElementById('adsrSustain').value) * 100)}%`;
     document.getElementById('displayRelease').textContent = `${parseFloat(document.getElementById('adsrRelease').value).toFixed(2)}s`;
 
-    // Visualizador de Imagen Estéreo
     const stVal = parseFloat(document.getElementById('stereoSlider').value);
-    document.getElementById('stereoDisplay').textContent = stVal === 0.5 ? "Mono (Centro)" : stVal < 0.5 ? "Fase Izquierda" : "Fase Derecha";
+    if (stVal === 0.5) {
+        document.getElementById('stereoDisplay').textContent = "Señal Normal";
+    } else if (stVal < 0.5) {
+        const porcMono = Math.round((1 - (stVal * 2)) * 100);
+        document.getElementById('stereoDisplay').textContent = `Modo Mono (${porcMono}%)`;
+    } else {
+        const porcEstereo = Math.round(((stVal - 0.5) * 2) * 100);
+        document.getElementById('stereoDisplay').textContent = `Estéreo Expandido (+${porcEstereo}%)`;
+    }
 
     dibujarGraficoADSR();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('octaveSlider').addEventListener('input', generarTeclado);
-    document.getElementById('stereoSlider').addEventListener('input', actualizarInterfaz);
-    
-    ['adsrAttack', 'adsrDecay', 'adsrSustain', 'adsrRelease'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
-    ['detuneSliderA', 'detuneSliderB', 'detuneSliderC', 'noiseVolume', 'btnToggleA', 'btnToggleB', 'btnToggleC', 'btnToggleNoise', 'noiseType', 'harmSliderA', 'harmSliderB', 'harmSliderC'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
-
-    vincularFiltros('A', 'fltA-lp', 'fltA-hp', 'fltA-bp', 'pwrFiltroA');
-    vincularFiltros('B', 'fltB-lp', 'fltB-hp', 'fltB-bp', 'pwrFiltroB');
-    vincularFiltros('C', 'fltC-lp', 'fltC-hp', 'fltC-bp', 'pwrFiltroC');
-
-    inicializarPadsXY();
-    generarTeclado();
-    actualizarInterfaz();
-});
-
-// --- CONTROLADOR DE LA INTERFAZ DE FIREBASE ---
 function controlarInterfazAutentificacion() {
     let modoRegistro = false;
     
@@ -346,7 +407,6 @@ function controlarInterfazAutentificacion() {
     const btnSignOut = document.getElementById('btnSignOut');
     const btnContinue = document.getElementById('btnContinue');
 
-    // Cambiar entre Modos (Login / Registro)
     btnToggle.addEventListener('click', () => {
         modoRegistro = !modoRegistro;
         if (modoRegistro) {
@@ -360,7 +420,6 @@ function controlarInterfazAutentificacion() {
         }
     });
 
-    // Envío del Formulario a Firebase
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         const email = emailInput.value;
@@ -373,7 +432,7 @@ function controlarInterfazAutentificacion() {
         } else {
             iniciarSesion(email, password)
                 .then(() => {
-                    authModal.classList.add('d-none'); // Quita el blur y oculta la ventana
+                    authModal.classList.add('d-none');
                 })
                 .catch(error => alert("Error de credenciales: " + error.message));
         }
@@ -388,25 +447,36 @@ function controlarInterfazAutentificacion() {
         authModal.classList.add('d-none');
     });
 
-    // Listener de estado de Firebase en tiempo real
     vigilarEstadoUsuario((user) => {
         if (user) {
             form.classList.add('d-none');
             userStatus.classList.remove('d-none');
             currentEmail.textContent = user.email;
-            authModal.classList.add('d-none'); // Esconde la pantalla si ya está logueado
+            authModal.classList.add('d-none');
         } else {
             form.classList.remove('d-none');
             userStatus.classList.add('d-none');
             currentEmail.textContent = "";
-            authModal.classList.remove('d-none'); // Bloquea si no está logueado
+            authModal.classList.remove('d-none');
         }
     });
 }
 
-// Llama a la función al cargar la página (Colócala dentro de tu inicializador DOM)
+// --- ÚNICO INICIALIZADOR GENERAL DEL DOM ---
 document.addEventListener('DOMContentLoaded', () => {
-    // ... tus setups de audio previos ...
+    document.getElementById('octaveSlider').addEventListener('input', generarTeclado);
+    document.getElementById('stereoSlider').addEventListener('input', actualizarInterfaz);
     
+    ['adsrAttack', 'adsrDecay', 'adsrSustain', 'adsrRelease'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
+    ['detuneSliderA', 'detuneSliderB', 'detuneSliderC', 'noiseVolume', 'btnToggleA', 'btnToggleB', 'btnToggleC', 'btnToggleNoise', 'noiseType', 'harmSliderA', 'harmSliderB', 'harmSliderC'].forEach(id => document.getElementById(id).addEventListener('input', actualizarInterfaz));
+
+    vincularFiltros('A', 'fltA-lp', 'fltA-hp', 'fltA-bp', 'pwrFiltroA');
+    vincularFiltros('B', 'fltB-lp', 'fltB-hp', 'fltB-bp', 'pwrFiltroB');
+    vincularFiltros('C', 'fltC-lp', 'fltC-hp', 'fltC-bp', 'pwrFiltroC');
+
+    inicializarPadsXY();
+    generarTeclado();
+    actualizarInterfaz();
+    inicializarEscuchadoresTecladoFisico();
     controlarInterfazAutentificacion();
 });
